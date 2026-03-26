@@ -1,56 +1,85 @@
 #! /usr/bin/env python3
-import sys 
+import sys
 import re
 import requests
+import json
 
 def extract_form_data(url):
     # Ensure we are looking at the viewform page
     if "viewform" not in url:
         url = url.split("?")[0] + "/viewform"
 
-    response = requests.get(url)
-    if response.status_code != 200:
-        print("Error: Could not fetch form.")
+    try:
+        response = requests.get(url)
+        response.raise_for_status()
+    except Exception as e:
+        print(f"Error fetching form: {e}")
         return
 
-    # Look for the FB_PUBLIC_LOAD_DATA_ variable which contains the form structure
-    # This is a bit of a "hack" but very reliable for Google Forms
+    # Extract the JS variable containing form metadata
     match = re.search(r'FB_PUBLIC_LOAD_DATA_ = (.*?);', response.text)
     if not match:
-        print("Error: Could not find form data in page.")
+        print("Error: Could not find form data. Is the form public?")
         return
 
-    import json
     data = json.loads(match.group(1))
     
-    # The nested structure of the Google Form JSON object:
-    # data[1][1] contains the list of questions
+    # data[1][1] = List of questions
+    # data[1][0] = Form ID
+    form_id = data[1][0]
     questions = data[1][1]
     
-    print(f"form_id: \"{data[1][0]}\"")
+    print(f"form_id: \"{form_id}\"")
+    print("submit_text: \"Submit\"")
     print("fields:")
     
     for q in questions:
         try:
-            label = q[1]
-            # Entry ID is usually in the first sub-item of the question data
-            entry_id = q[4][0][0]
-            # Map Google's internal type IDs to Hugo-friendly types
-            # 0: short text, 1: paragraph, 2: multiple choice, 3: dropdown
-            g_type = q[3]
-            h_type = "text"
-            if g_type == 1: h_type = "textarea"
-            if g_type in [2, 3]: h_type = "select"
+            # Question Metadata mapping:
+            # q[1] = Label/Title
+            # q[3] = Type ID (0: short, 1: long, 2: radio, 3: dropdown, 5: check, 7: scale)
+            # q[4][0][0] = Entry ID
+            # q[4][0][2] = Required (1 = True, 0 = False)
             
+            label = q[1]
+            entry_id = q[4][0][0]
+            g_type = q[3]
+            
+            # Detect if field is required
+            is_required = True if q[4][0][2] == 1 else False
+            
+            # Map Google Types to our YAML Schema
+            h_type = "text"
+            options = []
+            rating_range = None
+
+            if g_type == 1:
+                h_type = "paragraph"
+            elif g_type == 2 or g_type == 3:
+                h_type = "radio"
+                # Extract options from q[4][0][1]
+                options = [opt[0] for opt in q[4][0][1]]
+            elif g_type == 7:
+                h_type = "rating"
+                # Scale min/max is usually in q[4][0][3]
+                rating_range = [int(q[4][0][3][0]), int(q[4][0][3][-1])]
+
+            # Print YAML Block
             print(f"  - label: \"{label}\"")
             print(f"    id: \"entry.{entry_id}\"")
             print(f"    type: \"{h_type}\"")
+            print(f"    required: {str(is_required).lower()}")
             
-            if g_type in [2, 3]:
+            if options:
                 print("    options:")
-                for opt in q[4][0][1]:
-                    print(f"      - \"{opt[0]}\"")
+                for opt in options:
+                    print(f"      - \"{opt}\"")
+            
+            if rating_range:
+                print(f"    range: [{rating_range[0]}, {rating_range[1]}]")
+                
         except (IndexError, TypeError):
+            # Skip items that aren't actual questions (like section headers)
             continue
 
 if __name__ == "__main__":
