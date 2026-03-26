@@ -9,13 +9,18 @@
         <textarea name="{{ .id }}" rows="4" class="w-full border p-2" {{ if .required }}required{{ end }}></textarea>
 
       {{ else if eq .type "radio" }}
+        {{ $fieldID := .id }}  {{ $isRequired := .required }}
         <div class="radio-group">
-          {{ range .options }}
+            {{ range .options }}
             <label class="inline-flex items-center mr-4">
-              <input type="radio" name="{{ $.id }}" value="{{ . }}" class="mr-2" {{ if $.required }}required{{ end }}>
-              <span>{{ . }}</span>
+                <input type="radio" 
+                    name="{{ $fieldID }}" 
+                    value="{{ . }}" 
+                    class="mr-2" 
+                    {{ if $isRequired }}required{{ end }}>
+                <span>{{ . }}</span>
             </label>
-          {{ end }}
+            {{ end }}
         </div>
 
       {{ else if eq .type "rating" }}
